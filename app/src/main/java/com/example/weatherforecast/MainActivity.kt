@@ -30,6 +30,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.rememberAsyncImagePainter
 
@@ -103,7 +104,7 @@ fun MainScreen() {
 
     val items = listOf("extra","weather", "forecast")
 
-    var expanded by remember { mutableStateOf(false)}
+    var expanded by rememberSaveable { mutableStateOf(false)}
 
     Scaffold(
         topBar = {
