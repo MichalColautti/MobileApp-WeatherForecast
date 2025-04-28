@@ -28,6 +28,8 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.rememberAsyncImagePainter
 
@@ -94,12 +96,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
     val items = listOf("extra","weather", "forecast")
 
+    val menuOpen: Boolean = false
+
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("") },
+                actions = {
+                    IconButton(onClick = { menuOpen != menuOpen}) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu"
+                        )
+                    }
+                }
+            )
+        },
         bottomBar = {
             BottomNavigationBar(navController, items)
         }
