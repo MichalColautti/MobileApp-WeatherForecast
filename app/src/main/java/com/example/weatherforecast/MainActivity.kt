@@ -27,6 +27,7 @@ import retrofit2.http.Query
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -58,20 +59,20 @@ data class Weather(
 
 private const val API_URL = "https://api.openweathermap.org/data/2.5/"
 
-class WeatherApiParams(
-    val city: String = "Warsaw",
-    val apiKey: String = "d935a7419da6eb564f3b108aff9771de",
-    val units: String = "metric",
-    val lang: String = "pl"
-)
+object WeatherApiParams{
+    var city: String = "Warsaw"
+    val apiKey: String = "d935a7419da6eb564f3b108aff9771de"
+    var units: String = "metric"
+    var lang: String = "pl"
+}
 
 interface WeatherApi {
     @GET("weather")
     suspend fun getWeatherByCity(
-        @Query("q") city: String = WeatherApiParams().city,
-        @Query("appid") apiKey: String = WeatherApiParams().apiKey,
-        @Query("units") units: String = WeatherApiParams().units,
-        @Query("lang") lang: String = WeatherApiParams().lang
+        @Query("q") city: String = WeatherApiParams.city,
+        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+        @Query("units") units: String = WeatherApiParams.units,
+        @Query("lang") lang: String = WeatherApiParams.lang
     ): WeatherResponse
 }
 
@@ -219,8 +220,24 @@ fun SettingsScreen() {
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
+        var checked by rememberSaveable { mutableStateOf(true) }
+
         Text("Settings", fontSize = 32.sp)
-        Text("Settings screen")
+        Text("Units: ")
+        Switch(
+            checked = checked,
+            onCheckedChange = { isChecked ->
+                checked = !checked
+                if (checked){
+                    WeatherApiParams.units = "metric"
+                }
+                else {
+                    WeatherApiParams.units = "imperial"
+                }
+            }
+        )
+        Text(if (WeatherApiParams.units == "metric") "Celsius" else "Fahrenheit")
+
     }
 }
 
@@ -292,7 +309,7 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
                     contentScale = ContentScale.Fit
                 )
                 Text(text = weather!!.name, fontSize = 28.sp)
-                Text(text = "${weather!!.main.temp}°C", fontSize = 48.sp)
+                Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
                 Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
                 Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
             }
