@@ -102,17 +102,34 @@ fun MainScreen() {
     val navController = rememberNavController()
     val items = listOf("extra","weather", "forecast")
 
-    val menuOpen: Boolean = false
+    var expanded by remember { mutableStateOf(false)}
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("") },
                 actions = {
-                    IconButton(onClick = { menuOpen != menuOpen}) {
+                    IconButton(onClick = { expanded = !expanded}) {
                         Icon(
                             imageVector = Icons.Default.Menu,
                             contentDescription = "Menu"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false}
+                    ) {
+                        DropdownMenuItem(
+                            onClick = {
+                                expanded = false
+                            },
+                            text = { Text("Cities")}
+                        )
+                        DropdownMenuItem(
+                            onClick = {
+                                expanded = false
+                            },
+                            text = { Text("Settings") }
                         )
                     }
                 }
