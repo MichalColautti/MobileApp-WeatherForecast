@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
+
     val items = listOf("extra","weather", "forecast")
 
     var expanded by remember { mutableStateOf(false)}
@@ -122,12 +123,26 @@ fun MainScreen() {
                         DropdownMenuItem(
                             onClick = {
                                 expanded = false
+                                navController.navigate("cities") {
+                                    popUpTo(navController.graph.startDestinationId){
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             },
                             text = { Text("Cities")}
                         )
                         DropdownMenuItem(
                             onClick = {
                                 expanded = false
+                                navController.navigate("settings") {
+                                    popUpTo(navController.graph.startDestinationId){
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             },
                             text = { Text("Settings") }
                         )
@@ -138,7 +153,8 @@ fun MainScreen() {
         bottomBar = {
             BottomNavigationBar(navController, items)
         }
-    ) { innerPadding ->
+    )
+    { innerPadding ->
         NavHost(
             navController,
             startDestination = "weather",
@@ -147,6 +163,8 @@ fun MainScreen() {
             composable("extra") { ExtraInformationScreen() }
             composable("weather") { WeatherForecastScreen() }
             composable("forecast") { ForecastScreen() }
+            composable("settings") { SettingsScreen() }
+            composable("cities") { CitiesScreen() }
         }
     }
 }
@@ -176,7 +194,9 @@ fun BottomNavigationBar(navController: NavController, items: List<String>) {
                 onClick = {
                     if (currentRoute != screen) {
                         navController.navigate(screen) {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -188,6 +208,35 @@ fun BottomNavigationBar(navController: NavController, items: List<String>) {
         }
     }
 }
+
+@Composable
+fun SettingsScreen() {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+    ) {
+        Text("Settings", fontSize = 32.sp)
+        Text("Settings screen")
+    }
+}
+
+@Composable
+fun CitiesScreen() {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+    ) {
+        Text("Cities", fontSize = 32.sp)
+        Text("Cities screen")
+    }
+}
+
 
 @Composable
 fun ExtraInformationScreen() {
