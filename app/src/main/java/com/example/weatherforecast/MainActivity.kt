@@ -3,6 +3,7 @@ package com.example.weatherforecast
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -86,6 +87,23 @@ class PreferencesManager(context: Context) {
     fun getLanguage(): String {
         return prefs.getString("language", "pl") ?: "pl"
     }
+
+    fun saveCityList(cityList: List<String>) {
+        prefs.edit { putString("cities", cityList.joinToString(",")) }
+    }
+
+    fun getCityList(): List<String> {
+        val saved = prefs.getString("cities", null) ?: "Warsaw"
+        return saved.split(",").distinct()
+    }
+
+    fun setCurrentCity(city: String) {
+        prefs.edit { putString("current_city", city) }
+    }
+
+    fun getCurrentCity(): String {
+        return prefs.getString("current_city", "Warsaw") ?: "Warsaw"
+    }
 }
 
 private const val API_URL = "https://api.openweathermap.org/data/2.5/"
@@ -124,6 +142,7 @@ class MainActivity : ComponentActivity() {
         val prefs = PreferencesManager(this)
         WeatherApiParams.units = prefs.getUnits()
         WeatherApiParams.lang = prefs.getLanguage()
+        WeatherApiParams.city = prefs.getCurrentCity()
         setContent {
             WeatherForecastTheme {
                 MainScreen()
@@ -200,7 +219,7 @@ fun MainScreen() {
             composable("weather") { WeatherForecastScreen() }
             composable("forecast") { ForecastScreen() }
             composable("settings") { SettingsScreen() }
-            composable("cities") { CitiesScreen() }
+            composable("cities") { CitiesScreen(navController) }
         }
     }
 }
@@ -317,7 +336,13 @@ fun SettingsScreen() {
 }
 
 @Composable
-fun CitiesScreen() {
+fun CitiesScreen(navController: NavController) {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+
+    var newCity by rememberSaveable { mutableStateOf("") }
+    var cityList by rememberSaveable { mutableStateOf(prefs.getCityList()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -326,7 +351,44 @@ fun CitiesScreen() {
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
         Text("Cities", fontSize = 32.sp)
-        Text("Cities screen")
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = newCity,
+            onValueChange = { newCity = it },
+            label = { Text("Add city") }
+        )
+
+        Button(onClick = {
+            if (newCity == "") {
+                Toast.makeText(context,"Empty city field", Toast.LENGTH_SHORT).show()
+            }
+            else {
+                try {
+                    val city = newCity.trim()
+                    prefs.setCurrentCity(city)
+
+                    WeatherApiParams.city = city
+
+                    navController.navigate("weather") {
+                        popUpTo("weather") {
+                            inclusive = true
+                        }
+                        launchSingleTop = true
+                    }
+
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        "Error: ${e.localizedMessage}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        })
+        {
+            Text("Go to")
+        }
     }
 }
 
