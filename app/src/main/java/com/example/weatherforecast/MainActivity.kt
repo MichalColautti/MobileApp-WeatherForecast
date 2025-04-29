@@ -216,7 +216,7 @@ fun MainScreen() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("extra") { ExtraInformationScreen() }
-            composable("weather") { WeatherForecastScreen() }
+            composable("weather") { WeatherScreen() }
             composable("forecast") { ForecastScreen() }
             composable("settings") { SettingsScreen() }
             composable("cities") { CitiesScreen(navController) }
@@ -408,7 +408,7 @@ fun ExtraInformationScreen() {
 }
 
 @Composable
-fun WeatherForecastScreen(modifier: Modifier = Modifier) {
+fun WeatherScreen(modifier: Modifier = Modifier) {
     var weather by remember { mutableStateOf<WeatherResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -418,7 +418,7 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
             weather = RetrofitClient.api.getWeatherByCity()
             isLoading = false
         } catch (e: Exception) {
-            errorMessage = "Błąd: ${e.localizedMessage}"
+            errorMessage = "Error: ${e.localizedMessage}"
             isLoading = false
         }
     }
@@ -435,8 +435,13 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
                 CircularProgressIndicator()
             }
             errorMessage != null -> {
-                Text("Nie udało się załadować danych.")
-                Text(errorMessage ?: "")
+                Text("Can't load data.")
+                if (errorMessage!!.contains("404")) {
+                    Text("City " + WeatherApiParams.city + " not found")
+                }
+                else {
+                    Text(errorMessage ?: "")
+                }
             }
             weather != null -> {
                 Image(
@@ -481,7 +486,7 @@ fun MainScreenPreview() {
 @Composable
 fun PreviewWeatherForecastScreen() {
     WeatherForecastTheme {
-        WeatherForecastScreen()
+        WeatherScreen()
     }
 }
 
