@@ -1,5 +1,7 @@
 package com.example.weatherforecast
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,7 +30,6 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -40,10 +41,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.DpOffset
 import coil.compose.rememberAsyncImagePainter
-import kotlin.math.exp
+import androidx.core.content.edit
 
 data class WeatherResponse(
     val name: String,
@@ -66,6 +67,26 @@ data class Weather(
     val description: String,
     val icon: String
 )
+
+class PreferencesManager(context: Context) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("settings",Context.MODE_PRIVATE)
+
+    fun saveUnits(units: String) {
+        prefs.edit() { putString("units", units) }
+    }
+
+    fun getUnits(): String {
+        return prefs.getString("units", "metric") ?: "metric"
+    }
+
+    fun saveLanguage(lang: String) {
+        prefs.edit() { putString("language", lang) }
+    }
+
+    fun getLanguage(): String {
+        return prefs.getString("language", "pl") ?: "pl"
+    }
+}
 
 private const val API_URL = "https://api.openweathermap.org/data/2.5/"
 
@@ -100,6 +121,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val prefs = PreferencesManager(this)
+        WeatherApiParams.units = prefs.getUnits()
+        WeatherApiParams.lang = prefs.getLanguage()
         setContent {
             WeatherForecastTheme {
                 MainScreen()
@@ -223,6 +247,11 @@ fun BottomNavigationBar(navController: NavController, items: List<String>) {
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+
+    var checked by rememberSaveable { mutableStateOf(prefs.getUnits() == "metric") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -230,8 +259,6 @@ fun SettingsScreen() {
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
-        var checked by rememberSaveable { mutableStateOf(true) }
-
         Text("Settings", fontSize = 32.sp)
         Text("Units: ")
         Switch(
@@ -240,9 +267,11 @@ fun SettingsScreen() {
                 checked = !checked
                 if (checked){
                     WeatherApiParams.units = "metric"
+                    prefs.saveUnits("metric")
                 }
                 else {
                     WeatherApiParams.units = "imperial"
+                    prefs.saveUnits("imperial")
                 }
             }
         )
@@ -276,6 +305,7 @@ fun SettingsScreen() {
                         onClick = {
                             expanded = false
                             WeatherApiParams.lang = short
+                            prefs.saveLanguage(short)
                         },
                         text = { Text(lang) }
                     )
