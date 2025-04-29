@@ -27,13 +27,23 @@ import retrofit2.http.Query
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.DpOffset
 import coil.compose.rememberAsyncImagePainter
+import kotlin.math.exp
 
 data class WeatherResponse(
     val name: String,
@@ -213,7 +223,7 @@ fun BottomNavigationBar(navController: NavController, items: List<String>) {
 
 @Composable
 fun SettingsScreen() {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
@@ -238,12 +248,47 @@ fun SettingsScreen() {
         )
         Text(if (WeatherApiParams.units == "metric") "Celsius" else "Fahrenheit")
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        var expanded by rememberSaveable { mutableStateOf(false) }
+        var languages = listOf("English" to "en", "Polski" to "pl")
+        var buttonWidth by remember { mutableIntStateOf(0) }
+
+        Column {
+            Button(
+                onClick = { expanded = !expanded },
+                modifier = Modifier
+                    .onGloballyPositioned { coordinates ->
+                        buttonWidth = coordinates.size.width
+                    }
+            ) {
+                Text("Language: ${languages.find { it.second == WeatherApiParams.lang }?.first ?: "English"}")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .width(with(LocalDensity.current) { buttonWidth.toDp() })
+                    .offset(y = 8.dp)
+            ) {
+                languages.forEach { (lang,short) ->
+                    DropdownMenuItem(
+                        onClick = {
+                            expanded = false
+                            WeatherApiParams.lang = short
+                        },
+                        text = { Text(lang) }
+                    )
+                }
+            }
+        }
+
     }
 }
 
 @Composable
 fun CitiesScreen() {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
@@ -258,7 +303,7 @@ fun CitiesScreen() {
 
 @Composable
 fun ExtraInformationScreen() {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
@@ -286,7 +331,7 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .padding(32.dp),
@@ -320,7 +365,7 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
 
 @Composable
 fun ForecastScreen() {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
