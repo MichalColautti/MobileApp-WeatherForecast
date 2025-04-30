@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -52,6 +54,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.LayoutDirection
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
 import com.google.gson.Gson
@@ -264,7 +267,11 @@ fun MainScreen() {
         NavHost(
             navController,
             startDestination = "weather",
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier
+                .padding(
+                    start = innerPadding.calculateStartPadding(LayoutDirection.Ltr),
+                    end = innerPadding.calculateEndPadding(LayoutDirection.Ltr)
+                )
         ) {
             composable("extra") { ExtraInformationScreen() }
             composable("weather") { WeatherScreen() }
@@ -324,8 +331,7 @@ fun SettingsScreen() {
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+            .fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -394,86 +400,85 @@ fun CitiesScreen(navController: NavController) {
     var newCity by rememberSaveable { mutableStateOf("") }
     var cityList by remember { mutableStateOf(prefs.getCityList()) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("Cities", fontSize = 32.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = newCity,
-            onValueChange = { newCity = it },
-            label = { Text("Add city") }
-        )
-
-        Button(onClick = {
-            if (newCity == "") {
-                Toast.makeText(context,"Empty city field", Toast.LENGTH_SHORT).show()
-            }
-            else {
-                try {
-                    val city = newCity.trim().lowercase()
-                    prefs.setCurrentCity(city)
-
-                    WeatherApiParams.city = city
-
-                    navController.navigate("weather") {
-                        popUpTo("weather") {
-                            inclusive = true
-                        }
-                        launchSingleTop = true
-                    }
-
-                } catch (e: Exception) {
-                    Toast.makeText(
-                        context,
-                        "Error: ${e.localizedMessage}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        })
-        {
-            Text("Go to")
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+        item {
+            Text("Cities", fontSize = 32.sp)
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        item {
+            OutlinedTextField(
+                value = newCity,
+                onValueChange = { newCity = it },
+                label = { Text("Add city") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
-        Text("Favorite Cities", fontSize = 24.sp)
-        Spacer(modifier = Modifier.height(16.dp))
+        item {
+            Button(onClick = {
+                if (newCity == "") {
+                    Toast.makeText(context,"Empty city field", Toast.LENGTH_SHORT).show()
+                }
+                else {
+                    try {
+                        val city = newCity.trim().lowercase()
+                        prefs.setCurrentCity(city)
 
-        when {
-            cityList.isEmpty() -> {
-                Text("No favorite cities yet")
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp)
-                ) {
-                    items(cityList.size) { index ->
-                        val city = cityList[index]
-                        CityCard(
-                            city = city,
-                            onClick = {
-                                prefs.setCurrentCity(city)
-                                WeatherApiParams.city = city
-                                navController.navigate("weather") {
-                                    popUpTo("weather") { inclusive = true }
-                                    launchSingleTop = true
-                                }
+                        WeatherApiParams.city = city
+
+                        navController.navigate("weather") {
+                            popUpTo("weather") {
+                                inclusive = true
                             }
-                        )
+                            launchSingleTop = true
+                        }
+
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            context,
+                            "Error: ${e.localizedMessage}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
+            })
+            {
+                Text("Go to")
             }
+        }
+
+        item {
+            Text("Favorite Cities", fontSize = 24.sp)
+        }
+
+        if (cityList.isEmpty()) {
+            item {
+                Text("No favorite cities yet")
+            }
+        } else {
+            items(cityList.size) { index ->
+                CityCard(
+                    city = cityList[index],
+                    onClick = {
+                        prefs.setCurrentCity(cityList[index])
+                        WeatherApiParams.city = cityList[index]
+                        navController.navigate("weather") {
+                            popUpTo("weather") { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.size(80.dp))
         }
     }
 }
@@ -602,6 +607,7 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
                                 modifier = Modifier.size(30.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
 
