@@ -3,6 +3,7 @@ package com.example.weatherforecast
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,16 +30,24 @@ import retrofit2.http.Query
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -86,12 +95,57 @@ class PreferencesManager(context: Context) {
     fun getLanguage(): String {
         return prefs.getString("language", "pl") ?: "pl"
     }
+
+    fun saveCityList(cityList: List<String>) {
+        prefs.edit { putString("cities", cityList.joinToString(",")) }
+    }
+
+    fun getCityList(): List<String> {
+        val saved = prefs.getString("cities", null) ?: return emptyList()
+        return saved.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+    }
+
+    fun addCity(city: String) {
+            val normalizedCity = city.trim().lowercase()
+        val currentList = getCityList().toMutableList()
+        if (!currentList.contains(normalizedCity)) {
+            currentList.add(normalizedCity)
+            saveCityList(currentList)
+        }
+    }
+
+    fun removeCity(city: String) {
+        val normalizedCity = city.trim().lowercase()
+        val currentList = getCityList().toMutableList()
+        if (currentList.contains(normalizedCity)) {
+            currentList.remove(normalizedCity)
+            saveCityList(currentList)
+        }
+    }
+
+    fun setCurrentCity(city: String) {
+        prefs.edit { putString("current_city", city) }
+    }
+
+    fun getCurrentCity(): String {
+        return prefs.getString("current_city", "") ?: ""
+    }
+
+    fun clearCityList() {
+        prefs.edit {
+            remove("cities")
+        }
+        WeatherApiParams.city = "warsaw"
+    }
 }
 
 private const val API_URL = "https://api.openweathermap.org/data/2.5/"
 
 object WeatherApiParams{
-    var city: String = "Warsaw"
+    var city: String = "warsaw"
     val apiKey: String = "d935a7419da6eb564f3b108aff9771de"
     var units: String = "metric"
     var lang: String = "pl"
@@ -124,6 +178,8 @@ class MainActivity : ComponentActivity() {
         val prefs = PreferencesManager(this)
         WeatherApiParams.units = prefs.getUnits()
         WeatherApiParams.lang = prefs.getLanguage()
+        val currentCity = prefs.getCurrentCity()
+        WeatherApiParams.city = if (currentCity.isBlank()) "warsaw" else currentCity
         setContent {
             WeatherForecastTheme {
                 MainScreen()
@@ -197,10 +253,10 @@ fun MainScreen() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("extra") { ExtraInformationScreen() }
-            composable("weather") { WeatherForecastScreen() }
+            composable("weather") { WeatherScreen() }
             composable("forecast") { ForecastScreen() }
             composable("settings") { SettingsScreen() }
-            composable("cities") { CitiesScreen() }
+            composable("cities") { CitiesScreen(navController) }
         }
     }
 }
@@ -256,8 +312,8 @@ fun SettingsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Text("Settings", fontSize = 32.sp)
         Text("Units: ")
@@ -317,19 +373,112 @@ fun SettingsScreen() {
 }
 
 @Composable
-fun CitiesScreen() {
+fun CitiesScreen(navController: NavController) {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+
+    var newCity by rememberSaveable { mutableStateOf("") }
+    var cityList by remember { mutableStateOf(prefs.getCityList()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Text("Cities", fontSize = 32.sp)
-        Text("Cities screen")
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = newCity,
+            onValueChange = { newCity = it },
+            label = { Text("Add city") }
+        )
+
+        Button(onClick = {
+            if (newCity == "") {
+                Toast.makeText(context,"Empty city field", Toast.LENGTH_SHORT).show()
+            }
+            else {
+                try {
+                    val city = newCity.trim().lowercase()
+                    prefs.setCurrentCity(city)
+
+                    WeatherApiParams.city = city
+
+                    navController.navigate("weather") {
+                        popUpTo("weather") {
+                            inclusive = true
+                        }
+                        launchSingleTop = true
+                    }
+
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        "Error: ${e.localizedMessage}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        })
+        {
+            Text("Go to")
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text("Favorite Cities", fontSize = 24.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        when {
+            cityList.isEmpty() -> {
+                Text("No favorite cities yet")
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    items(cityList.size) { index ->
+                        val city = cityList[index]
+                        CityCard(
+                            city = city,
+                            onClick = {
+                                prefs.setCurrentCity(city)
+                                WeatherApiParams.city = city
+                                navController.navigate("weather") {
+                                    popUpTo("weather") { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
+@Composable
+fun CityCard(city: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = city.replaceFirstChar { it.uppercase() }, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+    }
+}
 
 @Composable
 fun ExtraInformationScreen() {
@@ -337,8 +486,8 @@ fun ExtraInformationScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Text("Extra info", fontSize = 32.sp)
         Text("dane dodatkowe np.: informacje o sile i kierunku wiatru, wilgotności widoczności", fontSize = 20.sp)
@@ -346,17 +495,23 @@ fun ExtraInformationScreen() {
 }
 
 @Composable
-fun WeatherForecastScreen(modifier: Modifier = Modifier) {
+fun WeatherScreen(modifier: Modifier = Modifier) {
     var weather by remember { mutableStateOf<WeatherResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+
+    var isFavorite by rememberSaveable { mutableStateOf(false)}
+
+    LaunchedEffect(WeatherApiParams.city) {
         try {
+            isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
             weather = RetrofitClient.api.getWeatherByCity()
             isLoading = false
         } catch (e: Exception) {
-            errorMessage = "Błąd: ${e.localizedMessage}"
+            errorMessage = "Error: ${e.localizedMessage}"
             isLoading = false
         }
     }
@@ -365,16 +520,21 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxSize()
             .padding(32.dp),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         when {
             isLoading -> {
                 CircularProgressIndicator()
             }
             errorMessage != null -> {
-                Text("Nie udało się załadować danych.")
-                Text(errorMessage ?: "")
+                Text("Can't load data.")
+                if (errorMessage!!.contains("404")) {
+                    Text("City " + WeatherApiParams.city + " not found")
+                }
+                else {
+                    Text(errorMessage ?: "")
+                }
             }
             weather != null -> {
                 Image(
@@ -387,6 +547,29 @@ fun WeatherForecastScreen(modifier: Modifier = Modifier) {
                 Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
                 Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
                 Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
+                Column (
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ){
+                    IconButton(
+                        onClick = {
+                            isFavorite = !isFavorite
+                            if (isFavorite) {
+                                Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
+                                prefs.addCity(WeatherApiParams.city)
+                            }
+                            else {
+                                prefs.removeCity(WeatherApiParams.city)
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star ,
+                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                            tint = if (isFavorite) Color.Yellow else Color.Gray,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -419,7 +602,7 @@ fun MainScreenPreview() {
 @Composable
 fun PreviewWeatherForecastScreen() {
     WeatherForecastTheme {
-        WeatherForecastScreen()
+        WeatherScreen()
     }
 }
 
