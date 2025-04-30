@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
+import com.google.gson.Gson
 
 data class WeatherResponse(
     val name: String,
@@ -134,11 +135,24 @@ class PreferencesManager(context: Context) {
         return prefs.getString("current_city", "") ?: ""
     }
 
-    fun clearCityList() {
-        prefs.edit {
-            remove("cities")
+    fun saveWeatherData(city: String, weatherData: WeatherResponse) {
+        val json = Gson().toJson(weatherData)
+        prefs.edit { putString("weather_$city", json) }
+    }
+
+    fun getWeatherData(city: String): WeatherResponse? {
+        val json = prefs.getString("weather_$city", null) ?: return null
+        return try {
+            Gson().fromJson(json, WeatherResponse::class.java)
+        } catch (e: Exception) {
+            null
         }
-        WeatherApiParams.city = "warsaw"
+    }
+
+    fun getLastSavedWeather(): WeatherResponse? {
+        val city = getCurrentCity()
+        if (city.isBlank()) return null
+        return getWeatherData(city)
     }
 }
 
@@ -505,13 +519,23 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
 
     var isFavorite by rememberSaveable { mutableStateOf(false)}
 
-    LaunchedEffect(WeatherApiParams.city) {
+    var isOffline by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
         try {
             isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
             weather = RetrofitClient.api.getWeatherByCity()
+            weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+
             isLoading = false
         } catch (e: Exception) {
             errorMessage = "Error: ${e.localizedMessage}"
+            val savedWeather = prefs.getLastSavedWeather()
+            if (savedWeather != null) {
+                weather = savedWeather
+                isOffline = true
+            }
+
             isLoading = false
         }
     }
@@ -527,49 +551,60 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
             isLoading -> {
                 CircularProgressIndicator()
             }
-            errorMessage != null -> {
+            errorMessage != null && weather == null -> {
                 Text("Can't load data.")
                 if (errorMessage!!.contains("404")) {
                     Text("City " + WeatherApiParams.city + " not found")
+                }
+                if (errorMessage!!.contains("Unable to resolve host")) {
+                    Text("Offline mode and no saved data of " + WeatherApiParams.city)
                 }
                 else {
                     Text(errorMessage ?: "")
                 }
             }
             weather != null -> {
-                Image(
-                    painter = rememberAsyncImagePainter("https://openweathermap.org/img/wn/${weather!!.weather.first().icon}@4x.png"),
-                    contentDescription = "Weather icon",
-                    modifier = Modifier.size(248.dp),
-                    contentScale = ContentScale.Fit
-                )
-                Text(text = weather!!.name, fontSize = 28.sp)
-                Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
-                Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
-                Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
-                Column (
+                LazyColumn(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                ){
-                    IconButton(
-                        onClick = {
-                            isFavorite = !isFavorite
-                            if (isFavorite) {
-                                Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
-                                prefs.addCity(WeatherApiParams.city)
-                            }
-                            else {
-                                prefs.removeCity(WeatherApiParams.city)
-                            }
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    item {
+                        if (isOffline) {
+                            Text("Offline mode - data may not be current", color = Color.Red)
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Star ,
-                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                            tint = if (isFavorite) Color.Yellow else Color.Gray,
-                            modifier = Modifier.size(30.dp)
+                        Image(
+                            painter = rememberAsyncImagePainter("https://openweathermap.org/img/wn/${weather!!.weather.first().icon}@4x.png"),
+                            contentDescription = "Weather icon",
+                            modifier = Modifier.size(248.dp),
+                            contentScale = ContentScale.Fit
                         )
+                        Text(text = weather!!.name, fontSize = 28.sp)
+                        Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
+                        Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
+                        Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
+                        IconButton(
+                            onClick = {
+                                isFavorite = !isFavorite
+                                if (isFavorite) {
+                                    Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
+                                    prefs.addCity(WeatherApiParams.city)
+                                    weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+                                } else {
+                                    prefs.removeCity(WeatherApiParams.city)
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                                tint = if (isFavorite) Color.Yellow else Color.Gray,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
                     }
                 }
+
             }
         }
     }
@@ -582,8 +617,8 @@ fun ForecastScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Text("Forecast", fontSize = 32.sp)
         Text("prognoza pogody na nadchodzące dni", fontSize = 20.sp)
