@@ -557,7 +557,7 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
                     Text("City " + WeatherApiParams.city + " not found")
                 }
                 if (errorMessage!!.contains("Unable to resolve host")) {
-                    Text("Offline mode and no saved data of city")
+                    Text("Offline mode and no saved data of " + WeatherApiParams.city)
                 }
                 else {
                     Text(errorMessage ?: "")
