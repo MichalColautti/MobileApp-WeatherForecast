@@ -521,7 +521,7 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
 
     var isOffline by remember { mutableStateOf(false) }
 
-    LaunchedEffect(WeatherApiParams.city) {
+    LaunchedEffect(Unit) {
         try {
             isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
             weather = RetrofitClient.api.getWeatherByCity()
@@ -564,44 +564,47 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
                 }
             }
             weather != null -> {
-                if (isOffline) {
-                    Text("Offline mode - data may not be current", color = Color.Red)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Image(
-                    painter = rememberAsyncImagePainter("https://openweathermap.org/img/wn/${weather!!.weather.first().icon}@4x.png"),
-                    contentDescription = "Weather icon",
-                    modifier = Modifier.size(248.dp),
-                    contentScale = ContentScale.Fit
-                )
-                Text(text = weather!!.name, fontSize = 28.sp)
-                Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
-                Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
-                Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
-                Column (
+                LazyColumn(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                ){
-                    IconButton(
-                        onClick = {
-                            isFavorite = !isFavorite
-                            if (isFavorite) {
-                                Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
-                                prefs.addCity(WeatherApiParams.city)
-                                weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
-                            }
-                            else {
-                                prefs.removeCity(WeatherApiParams.city)
-                            }
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    item {
+                        if (isOffline) {
+                            Text("Offline mode - data may not be current", color = Color.Red)
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Star ,
-                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                            tint = if (isFavorite) Color.Yellow else Color.Gray,
-                            modifier = Modifier.size(30.dp)
+                        Image(
+                            painter = rememberAsyncImagePainter("https://openweathermap.org/img/wn/${weather!!.weather.first().icon}@4x.png"),
+                            contentDescription = "Weather icon",
+                            modifier = Modifier.size(248.dp),
+                            contentScale = ContentScale.Fit
                         )
+                        Text(text = weather!!.name, fontSize = 28.sp)
+                        Text(text = "${weather!!.main.temp} " + if (WeatherApiParams.units == "metric") "°C" else "°F", fontSize = 48.sp)
+                        Text(text = weather!!.weather.first().description.replaceFirstChar { it.uppercase() }, fontSize = 20.sp)
+                        Text(text = "lat: " + weather!!.coord.lat + " lon: " + weather!!.coord.lon, fontSize = 18.sp)
+                        IconButton(
+                            onClick = {
+                                isFavorite = !isFavorite
+                                if (isFavorite) {
+                                    Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
+                                    prefs.addCity(WeatherApiParams.city)
+                                    weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+                                } else {
+                                    prefs.removeCity(WeatherApiParams.city)
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                                tint = if (isFavorite) Color.Yellow else Color.Gray,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
                     }
                 }
+
             }
         }
     }
