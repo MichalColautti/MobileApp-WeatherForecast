@@ -34,6 +34,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -54,10 +55,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
 import com.google.gson.Gson
+import java.nio.file.WatchEvent
+import java.text.SimpleDateFormat
+import java.util.Locale
+import kotlin.math.roundToInt
 
 data class WeatherResponse(
     val name: String,
@@ -184,7 +190,26 @@ interface WeatherApi {
         @Query("units") units: String = WeatherApiParams.units,
         @Query("lang") lang: String = WeatherApiParams.lang
     ): WeatherResponse
+
+    @GET("forecast")
+    suspend fun getForecastByCity(
+        @Query("q") city: String = WeatherApiParams.city,
+        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+        @Query("units") units: String = WeatherApiParams.units,
+        @Query("lang") lang: String = WeatherApiParams.lang
+    ): ForecastResponse
 }
+
+data class ForecastResponse(
+    val list: List<ForecastItem>
+)
+
+data class ForecastItem(
+    val dt_txt: String,
+    val main: Main,
+    val weather: List<Weather>
+)
+
 
 object RetrofitClient {
     val api: WeatherApi by lazy {
@@ -638,20 +663,152 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
     }
 }
 
-
 @Composable
 fun ForecastScreen() {
+    var forecast by remember { mutableStateOf<ForecastResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+    var isOffline by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        try {
+            forecast = RetrofitClient.api.getForecastByCity()
+            isLoading = false
+        } catch (e: Exception) {
+            error = e.localizedMessage
+            val savedWeather = prefs.getLastSavedWeather()
+            if (savedWeather != null) {
+                isOffline = true
+            }
+            isLoading = false
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
     ) {
-        Text("Forecast", fontSize = 32.sp)
-        Text("prognoza pogody na nadchodzące dni", fontSize = 20.sp)
+        Spacer(modifier = Modifier.padding(40.dp))
+        Text(
+            text = "5-Day Forecast for ${WeatherApiParams.city.replaceFirstChar { it.uppercase() }}",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        if (isOffline) {
+            Text(
+                text = "Offline mode - data may not be current",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+
+        when {
+            isLoading -> CircularProgressIndicator()
+            error != null -> Text("Error: $error")
+            forecast != null -> {
+                val groupedForecast = forecast!!.list.groupBy { it.dt_txt.substring(0, 10) }
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        bottom = 92.dp,
+                        top = 16.dp
+                    )
+                ) {
+                    groupedForecast.keys.take(5).forEach { date ->
+                        val dayForecast = groupedForecast[date]?.first()
+
+                        item {
+                            ForecastDayCard(
+                                date = date,
+                                weather = dayForecast?.weather?.first(),
+                                temp = dayForecast?.main?.temp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.padding(180.dp))
     }
 }
+
+@Composable
+fun ForecastDayCard(
+    date: String,
+    weather: Weather?,
+    temp: Double?
+) {
+    val formattedDate = try {
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val outputFormat = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
+        outputFormat.format(inputFormat.parse(date)) ?: date
+    } catch (e: Exception) {
+        date
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = formattedDate,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    weather?.icon?.let { iconCode ->
+                        Image(
+                            painter = rememberAsyncImagePainter(
+                                "https://openweathermap.org/img/wn/$iconCode@2x.png"
+                            ),
+                            contentDescription = "Weather icon",
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+
+                    Text(
+                        text = weather?.description?.replaceFirstChar { it.uppercase() } ?: "",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Text(
+                    text = "${temp?.roundToInt() ?: "no forecast"}°",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+
 
 @Preview(showBackground = true)
 @Composable
