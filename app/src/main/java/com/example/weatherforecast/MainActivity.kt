@@ -63,7 +63,9 @@ data class WeatherResponse(
     val name: String,
     val coord: Coord,
     val main: Main,
-    val weather: List<Weather>
+    val weather: List<Weather>,
+    val wind: Wind,
+    val visibility: Int
 )
 
 data class Coord(
@@ -73,12 +75,18 @@ data class Coord(
 
 data class Main(
     val temp: Double,
-    val pressure: Double
+    val pressure: Double,
+    val humidity: Int
 )
 
 data class Weather(
     val description: String,
     val icon: String
+)
+
+data class Wind(
+    val speed: Double,
+    val deg: Int
 )
 
 class PreferencesManager(context: Context) {
@@ -501,6 +509,15 @@ fun CityCard(city: String, onClick: () -> Unit) {
 
 @Composable
 fun ExtraInformationScreen() {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+    val weather = prefs.getLastSavedWeather()
+
+    if (weather == null) {
+        Text("Can't load data.")
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -508,8 +525,13 @@ fun ExtraInformationScreen() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Extra info", fontSize = 32.sp)
-        Text("dane dodatkowe np.: informacje o sile i kierunku wiatru, wilgotności widoczności", fontSize = 20.sp)
+        Text("Wind: ${weather.wind.speed} m/s", fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Direction: ${weather.wind.deg}°", fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Humidity: ${weather.main.pressure} hPa", fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Visibility: ${weather.visibility / 1000.0} km", fontSize = 20.sp)
     }
 }
 
