@@ -2,6 +2,7 @@ package com.example.weatherforecast
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -53,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -60,7 +63,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
 import com.google.gson.Gson
-import java.nio.file.WatchEvent
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -107,7 +109,7 @@ class PreferencesManager(context: Context) {
     }
 
     fun saveLanguage(lang: String) {
-        prefs.edit() { putString("language", lang) }
+        prefs.edit { putString("language", lang) }
     }
 
     fun getLanguage(): String {
@@ -238,9 +240,112 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun isTablet(): Boolean {
+    val configuration = LocalConfiguration.current
+    return if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        configuration.screenWidthDp > 840
+    } else {
+        configuration.screenWidthDp > 600
+    }
+}
+
 @Composable
 fun MainScreen() {
+    val isTablet = isTablet()
+
+    if (isTablet) {
+        TabletLayout()
+    } else {
+        PhoneScreen()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TabletLayout() {
+    val navController = rememberNavController()
+
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("") },
+                actions = {
+                    IconButton(onClick = { expanded = !expanded}) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false}
+                    ) {
+                        DropdownMenuItem(
+                            onClick = {
+                                expanded = false
+                                navController.navigate("cities") {
+                                    popUpTo(navController.graph.startDestinationId){
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            text = { Text("Cities")}
+                        )
+                        DropdownMenuItem(
+                            onClick = {
+                                expanded = false
+                                navController.navigate("settings") {
+                                    popUpTo(navController.graph.startDestinationId){
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            text = { Text("Settings") }
+                        )
+                    }
+                }
+            )
+        }
+    )
+    { innerPadding ->
+        NavHost(
+            navController,
+            startDestination = "weather",
+            modifier = Modifier
+                .padding(
+                    start = innerPadding.calculateStartPadding(LayoutDirection.Ltr),
+                    end = innerPadding.calculateEndPadding(LayoutDirection.Ltr)
+                )
+        ) {
+            composable("settings") { SettingsScreen() }
+            composable("cities") { CitiesScreen(navController) }
+            composable("weather") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    ExtraInformationScreen(modifier = Modifier.weight(1f))
+                    WeatherScreen(modifier = Modifier.weight(2f))
+                    ForecastScreen(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PhoneScreen() {
     val navController = rememberNavController()
 
     val items = listOf("extra","weather", "forecast")
@@ -533,10 +638,37 @@ fun CityCard(city: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun ExtraInformationScreen() {
+fun ExtraInformationScreen(modifier: Modifier = Modifier) {
+    var weather by remember { mutableStateOf<WeatherResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     val context = LocalContext.current
     val prefs = remember { PreferencesManager(context) }
-    val weather = prefs.getLastSavedWeather()
+
+    var isFavorite by rememberSaveable { mutableStateOf(false)}
+
+    var isOffline by remember { mutableStateOf(false) }
+
+
+    LaunchedEffect(Unit) {
+        try {
+            isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
+            weather = RetrofitClient.api.getWeatherByCity()
+            weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+
+            isLoading = false
+        } catch (e: Exception) {
+            errorMessage = "Error: ${e.localizedMessage}"
+            val savedWeather = prefs.getLastSavedWeather()
+            if (savedWeather != null) {
+                weather = savedWeather
+                isOffline = true
+            }
+
+            isLoading = false
+        }
+    }
 
     if (weather == null) {
         Text("Can't load data.")
@@ -544,19 +676,29 @@ fun ExtraInformationScreen() {
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Wind: ${weather.wind.speed} m/s", fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Direction: ${weather.wind.deg}°", fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(20.dp))
-        Text("Humidity: ${weather.main.pressure} hPa", fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Visibility: ${weather.visibility / 1000.0} km", fontSize = 20.sp)
+        when {
+            isLoading -> CircularProgressIndicator()
+            weather == null -> Text("No weather data available")
+            else -> {
+                if (isOffline) {
+                    Text("Offline mode - data may not be current", color = Color.Red, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                Text("Wind: ${weather!!.wind.speed} m/s", fontSize = 20.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Direction: ${weather!!.wind.deg}°", fontSize = 20.sp)
+                Spacer(modifier = Modifier.height(20.dp))
+                Text("Humidity: ${weather!!.main.pressure} hPa", fontSize = 20.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Visibility: ${weather!!.visibility / 1000.0} km", fontSize = 20.sp)
+            }
+        }
     }
 }
 
@@ -664,7 +806,7 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ForecastScreen() {
+fun ForecastScreen(modifier: Modifier = Modifier) {
     var forecast by remember { mutableStateOf<ForecastResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -679,7 +821,7 @@ fun ForecastScreen() {
         } catch (e: Exception) {
             error = e.localizedMessage
             val savedWeather = prefs.getLastSavedWeather()
-            if (savedWeather != null) {
+            if (savedWeather != null || e.message?.contains("Unable to resolve host") == true) {
                 isOffline = true
             }
             isLoading = false
@@ -687,7 +829,7 @@ fun ForecastScreen() {
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
