@@ -701,41 +701,42 @@ fun ForecastScreen() {
 
         if (isOffline) {
             Text(
-                text = "Offline mode - data may not be current",
+                text = "Offline mode - connect to the internet to receive forecast",
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
+        else {
+            when {
+                isLoading -> CircularProgressIndicator()
+                error != null -> Text("Error: $error")
+                forecast != null -> {
+                    val groupedForecast = forecast!!.list.groupBy { it.dt_txt.substring(0, 10) }
 
-        when {
-            isLoading -> CircularProgressIndicator()
-            error != null -> Text("Error: $error")
-            forecast != null -> {
-                val groupedForecast = forecast!!.list.groupBy { it.dt_txt.substring(0, 10) }
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(
+                            bottom = 92.dp,
+                            top = 16.dp
+                        )
+                    ) {
+                        groupedForecast.keys.take(5).forEach { date ->
+                            val dayForecast = groupedForecast[date]?.first()
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(
-                        bottom = 92.dp,
-                        top = 16.dp
-                    )
-                ) {
-                    groupedForecast.keys.take(5).forEach { date ->
-                        val dayForecast = groupedForecast[date]?.first()
-
-                        item {
-                            ForecastDayCard(
-                                date = date,
-                                weather = dayForecast?.weather?.first(),
-                                temp = dayForecast?.main?.temp
-                            )
+                            item {
+                                ForecastDayCard(
+                                    date = date,
+                                    weather = dayForecast?.weather?.first(),
+                                    temp = dayForecast?.main?.temp
+                                )
+                            }
                         }
                     }
                 }
             }
+            Spacer(modifier = Modifier.padding(180.dp))
         }
-        Spacer(modifier = Modifier.padding(180.dp))
     }
 }
 
