@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -54,17 +55,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -132,20 +138,20 @@ class PreferencesManager(context: Context) {
             .distinctBy { it.lowercase() }
     }
 
-    fun addCity(city: String) {
-        val normalizedCity = city.trim().lowercase()
+    fun addCity(id: String) {
+        val normalized = id.trim()
         val currentList = getCityList().toMutableList()
-        if (!currentList.contains(normalizedCity)) {
-            currentList.add(normalizedCity)
+        if (!currentList.contains(normalized)) {
+            currentList.add(normalized)
             saveCityList(currentList)
         }
     }
 
-    fun removeCity(city: String) {
-        val normalizedCity = city.trim().lowercase()
+    fun removeCity(id: String) {
+        val normalized = id.trim()
         val currentList = getCityList().toMutableList()
-        if (currentList.contains(normalizedCity)) {
-            currentList.remove(normalizedCity)
+        if (currentList.contains(normalized)) {
+            currentList.remove(normalized)
             saveCityList(currentList)
         }
     }
@@ -177,33 +183,49 @@ class PreferencesManager(context: Context) {
         if (city.isBlank()) return null
         return getWeatherData(city)
     }
+
+    fun clearSavedCitiesAndWeather() {
+        prefs.edit {
+            getCityList().forEach { cityId ->
+                remove("weather_$cityId")
+            }
+
+            remove("cities")
+            remove("current_city")
+        }
+    }
+
+    fun removeWeatherData(cityId: String) {
+        prefs.edit {
+            remove("weather_$cityId")
+        }
+    }
 }
 
 private const val API_URL = "https://api.openweathermap.org/data/2.5/"
 
 object WeatherApiParams{
-    var city: String = "warsaw"
     val apiKey: String = "d935a7419da6eb564f3b108aff9771de"
     var units: String = "metric"
     var lang: String = "pl"
 }
 
 interface WeatherApi {
-    @GET("weather")
-    suspend fun getWeatherByCity(
-        @Query("q") city: String = WeatherApiParams.city,
-        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
-        @Query("units") units: String = WeatherApiParams.units,
-        @Query("lang") lang: String = WeatherApiParams.lang
-    ): WeatherResponse
+//    @GET("weather")
+//    suspend fun getWeatherByCity(
+//        @Query("q") city: String = WeatherApiParams.city,
+//        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+//        @Query("units") units: String = WeatherApiParams.units,
+//        @Query("lang") lang: String = WeatherApiParams.lang
+//    ): WeatherResponse
 
-    @GET("forecast")
-    suspend fun getForecastByCity(
-        @Query("q") city: String = WeatherApiParams.city,
-        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
-        @Query("units") units: String = WeatherApiParams.units,
-        @Query("lang") lang: String = WeatherApiParams.lang
-    ): ForecastResponse
+//    @GET("forecast")
+//    suspend fun getForecastByCity(
+//        @Query("q") city: String = WeatherApiParams.city,
+//        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+//        @Query("units") units: String = WeatherApiParams.units,
+//        @Query("lang") lang: String = WeatherApiParams.lang
+//    ): ForecastResponse
 
     @GET("https://api.openweathermap.org/geo/1.0/direct")
     suspend fun searchCity(
@@ -211,6 +233,25 @@ interface WeatherApi {
         @Query("limit") limit: Int = 5,
         @Query("appid") apiKey: String = WeatherApiParams.apiKey
     ): List<SearchResult>
+
+    @GET("weather")
+    suspend fun getWeatherByCoordinates(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+        @Query("units") units: String = WeatherApiParams.units,
+        @Query("lang") lang: String = WeatherApiParams.lang
+    ): WeatherResponse
+
+    @GET("forecast")
+    suspend fun getForecastByCoordinates(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("appid") apiKey: String = WeatherApiParams.apiKey,
+        @Query("units") units: String = WeatherApiParams.units,
+        @Query("lang") lang: String = WeatherApiParams.lang
+    ): ForecastResponse
+
 }
 
 data class SearchResult(
@@ -248,20 +289,75 @@ object RetrofitClient {
     }
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), DefaultLifecycleObserver {
+    private lateinit var prefs: PreferencesManager
+    private var refreshJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        super<ComponentActivity>.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val prefs = PreferencesManager(this)
+        prefs = PreferencesManager(this)
+        //prefs.clearSavedCitiesAndWeather()
         WeatherApiParams.units = prefs.getUnits()
         WeatherApiParams.lang = prefs.getLanguage()
-        val currentCity = prefs.getCurrentCity()
-        WeatherApiParams.city = if (currentCity.isBlank()) "warsaw" else currentCity
+
+        lifecycle.addObserver(this)
+
+//        val currentCity = prefs.getCurrentCity()
+//        WeatherApiParams.city = if (currentCity.isBlank()) "warsaw" else currentCity
         setContent {
             WeatherForecastTheme {
                 MainScreen()
             }
         }
+    }
+
+    override fun onStart(owner: LifecycleOwner) {
+        startWeatherRefreshLoop()
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        stopWeatherRefreshLoop()
+    }
+
+    override fun onDestroy() {
+        super<ComponentActivity>.onDestroy()
+        lifecycle.removeObserver(this)
+    }
+
+    private fun startWeatherRefreshLoop() {
+        if (refreshJob?.isActive == true) return
+
+        refreshJob = CoroutineScope(Dispatchers.IO).launch {
+            delay(5 * 60 * 1000L)
+            while (isActive) {
+                val cityId = prefs.getCurrentCity()
+                val parts = cityId.split("|")
+                val lat = parts.getOrNull(3)?.toDoubleOrNull()
+                val lon = parts.getOrNull(4)?.toDoubleOrNull()
+
+                if (lat != null && lon != null) {
+                    try {
+                        val weather = RetrofitClient.api.getWeatherByCoordinates(lat, lon)
+                        prefs.saveWeatherData(cityId, weather)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(applicationContext, "Weather refreshed for $cityId", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(applicationContext, "Failed to refresh weather: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+
+                delay(5 * 60 * 1000L)
+            }
+        }
+    }
+
+    private fun stopWeatherRefreshLoop() {
+        refreshJob?.cancel()
+        refreshJob = null
     }
 }
 
@@ -306,7 +402,12 @@ fun TabletLayout() {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         IconButton(
-                            onClick = { navController.popBackStack() },
+                            onClick = {
+                                navController.navigate("weather") {
+                                    popUpTo("weather") { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
                             modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
@@ -541,49 +642,58 @@ fun SettingsScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        var expanded by rememberSaveable { mutableStateOf(false) }
-        var languages = listOf("English" to "en", "Polski" to "pl")
-        var buttonWidth by remember { mutableIntStateOf(0) }
-
-        Column {
-            Button(
-                onClick = { expanded = !expanded },
-                modifier = Modifier
-                    .onGloballyPositioned { coordinates ->
-                        buttonWidth = coordinates.size.width
-                    }
-            ) {
-                Text("Language: ${languages.find { it.second == WeatherApiParams.lang }?.first ?: "English"}")
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier
-                    .width(with(LocalDensity.current) { buttonWidth.toDp() })
-                    .offset(y = 8.dp)
-            ) {
-                languages.forEach { (lang, short) ->
-                    DropdownMenuItem(
-                        onClick = {
-                            expanded = false
-                            WeatherApiParams.lang = short
-                            prefs.saveLanguage(short)
-                        },
-                        text = { Text(lang) }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
+//        var expanded by rememberSaveable { mutableStateOf(false) }
+//        var languages = listOf("English" to "en", "Polski" to "pl")
+//        var buttonWidth by remember { mutableIntStateOf(0) }
+//
+//        Column {
+//            Button(
+//                onClick = { expanded = !expanded },
+//                modifier = Modifier
+//                    .onGloballyPositioned { coordinates ->
+//                        buttonWidth = coordinates.size.width
+//                    }
+//            ) {
+//                Text("Language: ${languages.find { it.second == WeatherApiParams.lang }?.first ?: "English"}")
+//            }
+//            DropdownMenu(
+//                expanded = expanded,
+//                onDismissRequest = { expanded = false },
+//                modifier = Modifier
+//                    .width(with(LocalDensity.current) { buttonWidth.toDp() })
+//                    .offset(y = 8.dp)
+//            ) {
+//                languages.forEach { (lang, short) ->
+//                    DropdownMenuItem(
+//                        onClick = {
+//                            expanded = false
+//                            WeatherApiParams.lang = short
+//                            prefs.saveLanguage(short)
+//                        },
+//                        text = { Text(lang) }
+//                    )
+//                }
+//            }
+//        }
+//
+//        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = {
                 isLoading = true
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        val weather = RetrofitClient.api.getWeatherByCity()
-                        prefs.saveWeatherData(WeatherApiParams.city, weather)
+                        val cityId = prefs.getCurrentCity()
+                        val parts = cityId.split("|")
+                        val lat = parts.getOrNull(3)?.toDoubleOrNull()
+                        val lon = parts.getOrNull(4)?.toDoubleOrNull()
+
+                        if (lat != null && lon != null) {
+                            val weather = RetrofitClient.api.getWeatherByCoordinates(lat, lon)
+                            prefs.saveWeatherData(cityId, weather)
+                        } else {
+                            throw IllegalStateException("No city selected or invalid format")
+                        }
 
                         withContext(Dispatchers.Main) {
                             isLoading = false
@@ -632,6 +742,10 @@ fun CitiesScreen(navController: NavController) {
     var isLoading by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
 
+    LaunchedEffect(Unit) {
+        cityList = prefs.getCityList()
+    }
+
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
@@ -652,9 +766,8 @@ fun CitiesScreen(navController: NavController) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val selectedCity = city.name
-                                    prefs.setCurrentCity(selectedCity)
-                                    WeatherApiParams.city = selectedCity
+                                    val selectedCityId = "${city.name}|${city.state ?: ""}|${city.country}|${city.lat}|${city.lon}"
+                                    prefs.setCurrentCity(selectedCityId)
                                     showDialog = false
                                     navController.navigate("weather") {
                                         popUpTo("weather") { inclusive = true }
@@ -714,8 +827,8 @@ fun CitiesScreen(navController: NavController) {
                                 Toast.makeText(context, "No matching cities found", Toast.LENGTH_SHORT).show()
                             } else if (results.size == 1) {
                                 val city = results.first()
-                                prefs.setCurrentCity(city.name)
-                                WeatherApiParams.city = city.name
+                                val selectedCityId = "${city.name}|${city.state ?: ""}|${city.country}|${city.lat}|${city.lon}"
+                                prefs.setCurrentCity(selectedCityId)
                                 navController.navigate("weather") {
                                     popUpTo("weather") { inclusive = true }
                                     launchSingleTop = true
@@ -756,11 +869,26 @@ fun CitiesScreen(navController: NavController) {
             }
         } else {
             items(cityList.size) { index ->
+                val cityParts = cityList[index].split("|")
+                val name = cityParts.getOrNull(0) ?: ""
+                val state = cityParts.getOrNull(1) ?: ""
+                val country = cityParts.getOrNull(2) ?: ""
+                val lat = cityParts.getOrNull(3) ?: ""
+                val lon = cityParts.getOrNull(4) ?: ""
+
+                val displayName = buildString {
+                    append(name)
+                    if (state.isNotBlank()) append(", $state")
+                    append(", $country")
+                    append(" [$lat, $lon]")
+                }
+
                 CityCard(
-                    city = cityList[index],
+                    city = displayName,
                     onClick = {
-                        prefs.setCurrentCity(cityList[index])
-                        WeatherApiParams.city = cityList[index]
+                        val selectedCityId = "$name|$state|$country|$lat|$lon"
+                        prefs.setCurrentCity(selectedCityId)
+                        prefs.addCity(selectedCityId)
                         navController.navigate("weather") {
                             popUpTo("weather") { inclusive = true }
                             launchSingleTop = true
@@ -768,6 +896,7 @@ fun CitiesScreen(navController: NavController) {
                     }
                 )
             }
+
         }
 
         item {
@@ -787,7 +916,11 @@ fun CityCard(city: String, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = city.replaceFirstChar { it.uppercase() }, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(
+                text = city,
+                fontSize = 20.sp,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
         }
     }
 }
@@ -801,26 +934,38 @@ fun ExtraInformationScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val prefs = remember { PreferencesManager(context) }
 
-    var isFavorite by rememberSaveable { mutableStateOf(false)}
+    val currentCityId = prefs.getCurrentCity()
+    val cityParts = currentCityId.split("|")
+    val name = cityParts.getOrNull(0) ?: ""
+    val state = cityParts.getOrNull(1) ?: ""
+    val country = cityParts.getOrNull(2) ?: ""
+    val lat = cityParts.getOrNull(3)?.toDoubleOrNull()
+    val lon = cityParts.getOrNull(4)?.toDoubleOrNull()
 
+    var isFavorite by rememberSaveable { mutableStateOf(false)}
     var isOffline by remember { mutableStateOf(false) }
 
 
     LaunchedEffect(Unit) {
+        if (currentCityId.isBlank()) {
+            errorMessage = "No city selected"
+            isLoading = false
+            return@LaunchedEffect
+        }
         try {
-            isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
-            weather = RetrofitClient.api.getWeatherByCity()
-            weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+            isFavorite = prefs.getCityList().contains(currentCityId)
 
+            weather = RetrofitClient.api.getWeatherByCoordinates(lat!!, lon!!)
+
+            weather?.let { prefs.saveWeatherData(currentCityId, it) }
             isLoading = false
         } catch (e: Exception) {
             errorMessage = "Error: ${e.localizedMessage}"
-            val savedWeather = prefs.getLastSavedWeather()
+            val savedWeather = prefs.getWeatherData(currentCityId)
             if (savedWeather != null) {
                 weather = savedWeather
                 isOffline = true
             }
-
             isLoading = false
         }
     }
@@ -866,25 +1011,38 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val prefs = remember { PreferencesManager(context) }
 
-    var isFavorite by rememberSaveable { mutableStateOf(false)}
+    val currentCityId = prefs.getCurrentCity()
+    val cityParts = currentCityId.split("|")
+    val name = cityParts.getOrNull(0) ?: ""
+    val state = cityParts.getOrNull(1) ?: ""
+    val country = cityParts.getOrNull(2) ?: ""
+    val lat = cityParts.getOrNull(3)?.toDoubleOrNull()
+    val lon = cityParts.getOrNull(4)?.toDoubleOrNull()
 
+    var isFavorite by rememberSaveable { mutableStateOf(false)}
     var isOffline by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        if (currentCityId.isBlank()) {
+            errorMessage = "No city selected"
+            isLoading = false
+            return@LaunchedEffect
+        }
         try {
-            isFavorite = prefs.getCityList().contains(WeatherApiParams.city.lowercase())
-            weather = RetrofitClient.api.getWeatherByCity()
-            weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+            weather = RetrofitClient.api.getWeatherByCoordinates(lat!!, lon!!)
+
+            weather?.let { prefs.saveWeatherData(currentCityId, it) }
+
+            isFavorite = prefs.getCityList().contains(currentCityId)
 
             isLoading = false
         } catch (e: Exception) {
             errorMessage = "Error: ${e.localizedMessage}"
-            val savedWeather = prefs.getLastSavedWeather()
+            val savedWeather = prefs.getWeatherData(currentCityId)
             if (savedWeather != null) {
                 weather = savedWeather
                 isOffline = true
             }
-
             isLoading = false
         }
     }
@@ -897,20 +1055,10 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center
     ) {
         when {
-            isLoading -> {
-                CircularProgressIndicator()
-            }
+            isLoading -> CircularProgressIndicator()
             errorMessage != null && weather == null -> {
                 Text("Can't load data.")
-                if (errorMessage!!.contains("404")) {
-                    Text("City " + WeatherApiParams.city + " not found")
-                }
-                if (errorMessage!!.contains("Unable to resolve host")) {
-                    Text("Offline mode and no saved data of " + WeatherApiParams.city)
-                }
-                else {
-                    Text(errorMessage ?: "")
-                }
+                Text(errorMessage ?: "")
             }
             weather != null -> {
                 LazyColumn(
@@ -937,10 +1085,12 @@ fun WeatherScreen(modifier: Modifier = Modifier) {
                                 isFavorite = !isFavorite
                                 if (isFavorite) {
                                     Toast.makeText(context, "Added to favorites", Toast.LENGTH_SHORT).show()
-                                    prefs.addCity(WeatherApiParams.city)
-                                    weather?.let { prefs.saveWeatherData(WeatherApiParams.city, it) }
+                                    prefs.addCity(currentCityId)
+                                    weather?.let { prefs.saveWeatherData(currentCityId, it) }
                                 } else {
-                                    prefs.removeCity(WeatherApiParams.city)
+                                    Toast.makeText(context, "Deleted from favorites", Toast.LENGTH_SHORT).show()
+                                    prefs.removeCity(currentCityId)
+                                    prefs.removeWeatherData(currentCityId)
                                 }
                             }
                         ) {
@@ -969,9 +1119,19 @@ fun ForecastScreen(modifier: Modifier = Modifier) {
     val prefs = remember { PreferencesManager(context) }
     var isOffline by remember { mutableStateOf(false) }
 
+    val currentCityId = prefs.getCurrentCity()
+    val cityParts = currentCityId.split("|")
+    val lat = cityParts.getOrNull(3)?.toDoubleOrNull()
+    val lon = cityParts.getOrNull(4)?.toDoubleOrNull()
+
     LaunchedEffect(Unit) {
+        if (lat == null || lon == null) {
+            error = "No valid city coordinates"
+            isLoading = false
+            return@LaunchedEffect
+        }
         try {
-            forecast = RetrofitClient.api.getForecastByCity()
+            forecast = RetrofitClient.api.getForecastByCoordinates(lat, lon)
             isLoading = false
         } catch (e: Exception) {
             error = e.localizedMessage
@@ -991,7 +1151,7 @@ fun ForecastScreen(modifier: Modifier = Modifier) {
     ) {
         Spacer(modifier = Modifier.padding(40.dp))
         Text(
-            text = "5-Day Forecast for ${WeatherApiParams.city.replaceFirstChar { it.uppercase() }}",
+            text = "5-Day Forecast for ${cityParts.getOrNull(0)?.replaceFirstChar { it.uppercase() } ?: "Unknown"}",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 16.dp)
         )
