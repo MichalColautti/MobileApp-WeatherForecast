@@ -356,7 +356,7 @@ fun TabletLayout() {
                     end = innerPadding.calculateEndPadding(LayoutDirection.Ltr)
                 )
         ) {
-            composable("settings") { SettingsScreen() }
+            composable("settings") { SettingsScreen(navController) }
             composable("cities") { CitiesScreen(navController) }
             composable("weather") {
                 Row(
@@ -446,7 +446,7 @@ fun PhoneScreen() {
             composable("extra") { ExtraInformationScreen() }
             composable("weather") { WeatherScreen() }
             composable("forecast") { ForecastScreen() }
-            composable("settings") { SettingsScreen() }
+            composable("settings") { SettingsScreen(navController) }
             composable("cities") { CitiesScreen(navController) }
         }
     }
@@ -493,7 +493,7 @@ fun BottomNavigationBar(navController: NavController, items: List<String>) {
 }
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
     val prefs = remember { PreferencesManager(context) }
 
@@ -573,6 +573,12 @@ fun SettingsScreen() {
                         withContext(Dispatchers.Main) {
                             isLoading = false
                             Toast.makeText(context, "Data refreshed successfully", Toast.LENGTH_SHORT).show()
+                            navController.navigate("weather") {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                            }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
