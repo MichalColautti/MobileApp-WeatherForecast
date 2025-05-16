@@ -63,6 +63,10 @@ import androidx.compose.ui.unit.LayoutDirection
 import coil.compose.rememberAsyncImagePainter
 import androidx.core.content.edit
 import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -129,7 +133,7 @@ class PreferencesManager(context: Context) {
     }
 
     fun addCity(city: String) {
-            val normalizedCity = city.trim().lowercase()
+        val normalizedCity = city.trim().lowercase()
         val currentList = getCityList().toMutableList()
         if (!currentList.contains(normalizedCity)) {
             currentList.add(normalizedCity)
@@ -208,10 +212,16 @@ data class ForecastResponse(
 
 data class ForecastItem(
     val dt_txt: String,
-    val main: Main,
+    val main: ForecastMain,
     val weather: List<Weather>
 )
 
+data class ForecastMain(
+    val temp_min: Double,
+    val temp_max: Double,
+    val pressure: Double,
+    val humidity: Int
+)
 
 object RetrofitClient {
     val api: WeatherApi by lazy {
@@ -488,6 +498,7 @@ fun SettingsScreen() {
     val prefs = remember { PreferencesManager(context) }
 
     var checked by rememberSaveable { mutableStateOf(prefs.getUnits() == "metric") }
+    var isLoading by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -496,16 +507,16 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.Center
     ) {
         Text("Settings", fontSize = 32.sp)
+
         Text("Units: ")
         Switch(
             checked = checked,
             onCheckedChange = { isChecked ->
                 checked = !checked
-                if (checked){
+                if (checked) {
                     WeatherApiParams.units = "metric"
                     prefs.saveUnits("metric")
-                }
-                else {
+                } else {
                     WeatherApiParams.units = "imperial"
                     prefs.saveUnits("imperial")
                 }
@@ -536,7 +547,7 @@ fun SettingsScreen() {
                     .width(with(LocalDensity.current) { buttonWidth.toDp() })
                     .offset(y = 8.dp)
             ) {
-                languages.forEach { (lang,short) ->
+                languages.forEach { (lang, short) ->
                     DropdownMenuItem(
                         onClick = {
                             expanded = false
@@ -549,6 +560,42 @@ fun SettingsScreen() {
             }
         }
 
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Button(
+            onClick = {
+                isLoading = true
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val weather = RetrofitClient.api.getWeatherByCity()
+                        prefs.saveWeatherData(WeatherApiParams.city, weather)
+
+                        withContext(Dispatchers.Main) {
+                            isLoading = false
+                            Toast.makeText(context, "Data refreshed successfully", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            isLoading = false
+                            Toast.makeText(context, "Refresh failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            },
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Refreshing...")
+            } else {
+                Text("Refresh Weather Data")
+            }
+        }
     }
 }
 
@@ -869,8 +916,7 @@ fun ForecastScreen(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-        }
-        else {
+        } else {
             when {
                 isLoading -> CircularProgressIndicator()
                 error != null -> Text("Error: $error")
@@ -886,13 +932,19 @@ fun ForecastScreen(modifier: Modifier = Modifier) {
                         )
                     ) {
                         groupedForecast.keys.take(5).forEach { date ->
-                            val dayForecast = groupedForecast[date]?.first()
+                            val dayForecasts = groupedForecast[date] ?: emptyList()
+
+                            val dailyMinTemp = dayForecasts.minOfOrNull { it.main.temp_min } ?: 0.0
+                            val dailyMaxTemp = dayForecasts.maxOfOrNull { it.main.temp_max } ?: 0.0
+
+                            val representativeForecast = dayForecasts.firstOrNull { it.dt_txt.contains("12:00:00") } ?: dayForecasts.first()
 
                             item {
                                 ForecastDayCard(
                                     date = date,
-                                    weather = dayForecast?.weather?.first(),
-                                    temp = dayForecast?.main?.temp
+                                    weather = representativeForecast.weather.first(),
+                                    temp_min = dailyMinTemp,
+                                    temp_max = dailyMaxTemp
                                 )
                             }
                         }
@@ -908,7 +960,8 @@ fun ForecastScreen(modifier: Modifier = Modifier) {
 fun ForecastDayCard(
     date: String,
     weather: Weather?,
-    temp: Double?
+    temp_min: Double?,
+    temp_max: Double?
 ) {
     val formattedDate = try {
         val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -961,13 +1014,17 @@ fun ForecastDayCard(
                         text = weather?.description?.replaceFirstChar { it.uppercase() } ?: "",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    Text(
+                        text = "min temp: ${temp_min?.roundToInt()}°",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontSize = 24.sp
+                    )
+                    Text(
+                        text = "max temp: ${temp_max?.roundToInt()}°",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontSize = 24.sp
+                    )
                 }
-
-                Text(
-                    text = "${temp?.roundToInt() ?: "no forecast"}°",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
     }
