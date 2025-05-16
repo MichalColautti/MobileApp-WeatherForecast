@@ -204,7 +204,22 @@ interface WeatherApi {
         @Query("units") units: String = WeatherApiParams.units,
         @Query("lang") lang: String = WeatherApiParams.lang
     ): ForecastResponse
+
+    @GET("https://api.openweathermap.org/geo/1.0/direct")
+    suspend fun searchCity(
+        @Query("q") query: String,
+        @Query("limit") limit: Int = 5,
+        @Query("appid") apiKey: String = WeatherApiParams.apiKey
+    ): List<SearchResult>
 }
+
+data class SearchResult(
+    val name: String,
+    val lat: Double,
+    val lon: Double,
+    val country: String,
+    val state: String? = null
+)
 
 data class ForecastResponse(
     val list: List<ForecastItem>
@@ -613,6 +628,54 @@ fun CitiesScreen(navController: NavController) {
     var newCity by rememberSaveable { mutableStateOf("") }
     var cityList by remember { mutableStateOf(prefs.getCityList()) }
 
+    var showDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Wybierz miasto") },
+            text = {
+                LazyColumn {
+                    items(searchResults.size) { index ->
+                        val city = searchResults[index]
+                        val cityLabel = buildString {
+                            append(city.name)
+                            city.state?.let { append(", $it") }
+                            append(", ${city.country}")
+                            append(" [${city.lat}, ${city.lon}]")
+                        }
+
+                        Text(
+                            text = cityLabel,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val selectedCity = city.name
+                                    prefs.setCurrentCity(selectedCity)
+                                    WeatherApiParams.city = selectedCity
+                                    showDialog = false
+                                    navController.navigate("weather") {
+                                        popUpTo("weather") { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                }
+                                .padding(8.dp)
+                        )
+                    }
+
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Anuluj")
+                }
+            }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -621,6 +684,7 @@ fun CitiesScreen(navController: NavController) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
         item {
+            Spacer(modifier = Modifier.size(56.dp))
             Text("Cities", fontSize = 32.sp)
         }
 
@@ -635,34 +699,50 @@ fun CitiesScreen(navController: NavController) {
 
         item {
             Button(onClick = {
-                if (newCity == "") {
-                    Toast.makeText(context,"Empty city field", Toast.LENGTH_SHORT).show()
+                if (newCity.isBlank()) {
+                    Toast.makeText(context, "Empty city field", Toast.LENGTH_SHORT).show()
+                    return@Button
                 }
-                else {
+
+                isLoading = true
+                CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        val city = newCity.trim().lowercase()
-                        prefs.setCurrentCity(city)
-
-                        WeatherApiParams.city = city
-
-                        navController.navigate("weather") {
-                            popUpTo("weather") {
-                                inclusive = true
+                        val results = RetrofitClient.api.searchCity(newCity.trim())
+                        withContext(Dispatchers.Main) {
+                            isLoading = false
+                            if (results.isEmpty()) {
+                                Toast.makeText(context, "No matching cities found", Toast.LENGTH_SHORT).show()
+                            } else if (results.size == 1) {
+                                val city = results.first()
+                                prefs.setCurrentCity(city.name)
+                                WeatherApiParams.city = city.name
+                                navController.navigate("weather") {
+                                    popUpTo("weather") { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            } else {
+                                searchResults = results
+                                showDialog = true
                             }
-                            launchSingleTop = true
                         }
-
                     } catch (e: Exception) {
-                        Toast.makeText(
-                            context,
-                            "Error: ${e.localizedMessage}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        withContext(Dispatchers.Main) {
+                            isLoading = false
+                            Toast.makeText(context, "Search error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
-            })
-            {
-                Text("Go to")
+            }) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Searching...")
+                } else {
+                    Text("Go to")
+                }
             }
         }
 
